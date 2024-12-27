@@ -12,9 +12,11 @@ load_dotenv()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "temporary_secret_key_for_development")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY environment variable is required")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
 
 # Fixed demo user configuration
 DEMO_USERNAME = "demo"
@@ -49,13 +51,25 @@ def decode_access_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except JWTError:
+    except JWTError as e:
+        print(f"JWT decode error: {str(e)}")
+        print(f"Token: {token[:10]}...")  # Log first 10 chars for debugging
+        print(f"Secret key: {SECRET_KEY[:10]}...")  # Log first 10 chars of secret
         return None
 
+USERS = {DEMO_USERNAME: DEMO_USER}
+
 def get_user(username: str) -> Optional[dict]:
-    """Retrieve the demo user if username matches."""
-    return DEMO_USER if username == DEMO_USERNAME else None
+    """Retrieve a user by username."""
+    return USERS.get(username)
 
 def create_user(username: str, password: str) -> bool:
-    """Registration is disabled, using demo account only."""
-    return False
+    """Create a new user with the given username and password."""
+    if username in USERS:
+        return False
+    
+    USERS[username] = {
+        "username": username,
+        "hashed_password": hash_password(password)
+    }
+    return True

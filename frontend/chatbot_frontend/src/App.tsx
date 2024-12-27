@@ -1,13 +1,14 @@
-import { useState, ChangeEvent, KeyboardEvent, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import type { ChangeEvent, KeyboardEvent } from 'react'
 import ChatMessage from './components/ChatMessage'
 import { Input } from "./components/ui/input"
 import { Button } from "./components/ui/button"
 import { ScrollArea } from "./components/ui/scroll-area"
-import { Mic, RotateCcw, Send } from "lucide-react"
+import { Send, Mic, RotateCcw } from "lucide-react"
 import Sidebar from './components/Sidebar'
 import LoginForm from './components/LoginForm'
-import './katex.min.css'
-import './highlight.min.css'
+import 'katex/dist/katex.min.css'
+import 'highlight.js/styles/github.css'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -121,27 +122,43 @@ function App() {
           : chat
       ))
 
-      // Create new EventSource for streaming
-      const params = new URLSearchParams();
-      params.append('messages', JSON.stringify([...activeChat.messages, newMessage]));
-      params.append('token', token || ''); // Add token as URL parameter
+      // Create EventSource for streaming response
+      const messages = [...activeChat.messages, newMessage].map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
 
-      const eventSource = new EventSource(
-        `${import.meta.env.VITE_API_URL}/chat/stream?${params}`
-      );
-
+      // Create new EventSource with token in URL
+      const url = new URL(`${import.meta.env.VITE_API_URL}/chat/stream`);
+      url.searchParams.append('messages', JSON.stringify(messages));
+      
+      // Ensure token is available and properly formatted
+      if (!token) {
+        throw new Error('No authentication token available');
+      }
+      
+      // Remove 'Bearer ' prefix if present and encode
+      const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
+      console.log('Clean token (first 10 chars):', cleanToken.substring(0, 10));
+      url.searchParams.append('token', cleanToken);
+      
+      const eventSource = new EventSource(url.toString());
       eventSourceRef.current = eventSource;
 
       // Handle incoming messages
       eventSource.onmessage = (event) => {
-        const content = event.data;
+        const data = event.data;
+        if (data === '') {
+          eventSource.close();
+          return;
+        }
         setChats(prevChats => prevChats.map(chat =>
           chat.id === selectedChatId
             ? {
                 ...chat,
                 messages: chat.messages.map((msg, idx) =>
                   idx === chat.messages.length - 1
-                    ? { ...msg, content: msg.content + content }
+                    ? { ...msg, content: msg.content + (msg.content && !msg.content.endsWith(' ') ? ' ' : '') + data }
                     : msg
                 )
               }
@@ -149,27 +166,17 @@ function App() {
         ));
       };
 
-      // Handle stream end
-      eventSource.addEventListener('end', () => {
-        eventSource.close();
-        eventSourceRef.current = null;
-      });
-
       // Handle errors
       eventSource.onerror = (error) => {
         console.error('EventSource error:', error);
         eventSource.close();
-        eventSourceRef.current = null;
         setChats(prevChats => prevChats.map(chat =>
           chat.id === selectedChatId
             ? {
                 ...chat,
                 messages: chat.messages.map((msg, idx) =>
                   idx === chat.messages.length - 1
-                    ? {
-                        ...msg,
-                        content: msg.content || 'Sorry, I encountered an error while processing your request.'
-                      }
+                    ? { ...msg, content: msg.content || 'Sorry, I encountered an error while processing your request.' }
                     : msg
                 )
               }
@@ -177,7 +184,7 @@ function App() {
         ));
       };
     } catch (error) {
-      console.error('Error:', error)
+      console.error('Error:', error);
       setChats(prevChats => prevChats.map(chat => 
         chat.id === selectedChatId 
           ? { ...chat, messages: [...chat.messages, {
@@ -185,7 +192,7 @@ function App() {
               content: 'Sorry, I encountered an error while processing your request.'
             }] }
           : chat
-      ))
+      ));
     }
   }
 
@@ -251,9 +258,9 @@ function App() {
           <div className="max-w-4xl mx-auto px-8 flex items-center gap-3">
             <Input
               value={input}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
               placeholder="Message DeepSeek"
-              onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+              onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && !e.shiftKey && handleSend()}
               className="flex-1 shadow-sm"
             />
             <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-700">
@@ -272,4 +279,4 @@ function App() {
   )
 }
 
-export default App
+export default App;
