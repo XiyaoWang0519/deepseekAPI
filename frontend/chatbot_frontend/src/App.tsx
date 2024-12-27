@@ -1,4 +1,4 @@
-import { useState, ChangeEvent, KeyboardEvent } from 'react'
+import { useState, ChangeEvent, KeyboardEvent, useEffect, useRef } from 'react'
 import ChatMessage from './components/ChatMessage'
 import { Input } from "./components/ui/input"
 import { Button } from "./components/ui/button"
@@ -6,6 +6,8 @@ import { ScrollArea } from "./components/ui/scroll-area"
 import { Mic, RotateCcw, Send } from "lucide-react"
 import Sidebar from './components/Sidebar'
 import LoginForm from './components/LoginForm'
+import './katex.min.css'
+import './highlight.min.css'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -19,6 +21,7 @@ interface Chat {
 }
 
 function App() {
+  const eventSourceRef = useRef<EventSource | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [chats, setChats] = useState<Chat[]>([{
     id: Date.now().toString(),
@@ -30,6 +33,15 @@ function App() {
   }])
   const [selectedChatId, setSelectedChatId] = useState<string>(chats[0].id)
   const [input, setInput] = useState('')
+
+  // Cleanup function for EventSource
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, []);
 
   const createNewChat = () => {
     const newChat: Chat = {
@@ -93,32 +105,77 @@ function App() {
     setInput('')
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          messages: [...activeChat.messages, newMessage]
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to get response')
+      // Close any existing EventSource
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
       }
 
-      const data = await response.json()
+      // Create placeholder for assistant's response
       const assistantMessage: Message = {
         role: 'assistant',
-        content: data.response
+        content: ''
       }
-
-      setChats(prevChats => prevChats.map(chat => 
-        chat.id === selectedChatId 
+      setChats(prevChats => prevChats.map(chat =>
+        chat.id === selectedChatId
           ? { ...chat, messages: [...chat.messages, assistantMessage] }
           : chat
       ))
+
+      // Create new EventSource for streaming
+      const params = new URLSearchParams();
+      params.append('messages', JSON.stringify([...activeChat.messages, newMessage]));
+      params.append('token', token || ''); // Add token as URL parameter
+
+      const eventSource = new EventSource(
+        `${import.meta.env.VITE_API_URL}/chat/stream?${params}`
+      );
+
+      eventSourceRef.current = eventSource;
+
+      // Handle incoming messages
+      eventSource.onmessage = (event) => {
+        const content = event.data;
+        setChats(prevChats => prevChats.map(chat =>
+          chat.id === selectedChatId
+            ? {
+                ...chat,
+                messages: chat.messages.map((msg, idx) =>
+                  idx === chat.messages.length - 1
+                    ? { ...msg, content: msg.content + content }
+                    : msg
+                )
+              }
+            : chat
+        ));
+      };
+
+      // Handle stream end
+      eventSource.addEventListener('end', () => {
+        eventSource.close();
+        eventSourceRef.current = null;
+      });
+
+      // Handle errors
+      eventSource.onerror = (error) => {
+        console.error('EventSource error:', error);
+        eventSource.close();
+        eventSourceRef.current = null;
+        setChats(prevChats => prevChats.map(chat =>
+          chat.id === selectedChatId
+            ? {
+                ...chat,
+                messages: chat.messages.map((msg, idx) =>
+                  idx === chat.messages.length - 1
+                    ? {
+                        ...msg,
+                        content: msg.content || 'Sorry, I encountered an error while processing your request.'
+                      }
+                    : msg
+                )
+              }
+            : chat
+        ));
+      };
     } catch (error) {
       console.error('Error:', error)
       setChats(prevChats => prevChats.map(chat => 
