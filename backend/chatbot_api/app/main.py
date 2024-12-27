@@ -88,6 +88,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 async def healthz():
     return {"status": "ok"}
 
+from fastapi.responses import StreamingResponse
+import asyncio
+
 @app.post("/chat")
 async def chat(request: ChatRequest, current_user: str = Depends(get_current_user)):
     try:
@@ -97,5 +100,39 @@ async def chat(request: ChatRequest, current_user: str = Depends(get_current_use
             stream=False
         )
         return {"response": response.choices[0].message.content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat/stream")
+async def stream_chat(request: ChatRequest, current_user: str = Depends(get_current_user)):
+    try:
+        async def generate():
+            try:
+                buffer = ""
+                response = client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[{"role": msg.role, "content": msg.content} for msg in request.messages],
+                    stream=True
+                )
+                
+                for chunk in response:
+                    if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            buffer += content
+                            # Send complete words/sentences
+                            if ' ' in buffer or '\n' in buffer or buffer.endswith('.'):
+                                yield buffer.encode('utf-8')
+                                buffer = ""
+                                await asyncio.sleep(0.01)  # Small delay for natural flow
+                
+                # Send any remaining content
+                if buffer:
+                    yield buffer.encode('utf-8')
+            except Exception as e:
+                yield str(e).encode('utf-8')
+                raise
+
+        return StreamingResponse(generate(), media_type='text/plain')
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

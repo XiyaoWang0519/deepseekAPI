@@ -93,7 +93,7 @@ function App() {
     setInput('')
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/chat`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -108,17 +108,52 @@ function App() {
         throw new Error('Failed to get response')
       }
 
-      const data = await response.json()
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.response
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('No response body')
       }
 
+      // Create initial assistant message
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: ''
+      }
       setChats(prevChats => prevChats.map(chat => 
         chat.id === selectedChatId 
           ? { ...chat, messages: [...chat.messages, assistantMessage] }
           : chat
       ))
+
+      // Read the stream
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        // Convert the chunk to text
+        const chunk = new TextDecoder().decode(value)
+        buffer += chunk
+
+        // Update the message when we have a complete word/sentence
+        if (buffer.includes(' ') || buffer.includes('\n') || chunk.endsWith('.')) {
+          setChats(prevChats => prevChats.map(chat => {
+            if (chat.id === selectedChatId) {
+              const lastMessage = chat.messages[chat.messages.length - 1]
+              if (lastMessage.role === 'assistant') {
+                return {
+                  ...chat,
+                  messages: [
+                    ...chat.messages.slice(0, -1),
+                    { ...lastMessage, content: lastMessage.content + buffer }
+                  ]
+                }
+              }
+            }
+            return chat
+          }))
+          buffer = ''
+        }
+      }
     } catch (error) {
       console.error('Error:', error)
       setChats(prevChats => prevChats.map(chat => 
