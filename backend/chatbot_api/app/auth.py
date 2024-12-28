@@ -36,23 +36,33 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a new JWT access token."""
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    try:
+        to_encode = data.copy()
+        if expires_delta:
+            expire = datetime.utcnow() + expires_delta
+        else:
+            expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        
+        to_encode.update({"exp": expire})
+        print(f"Creating token with data: {to_encode}")  # Debug log
+        print(f"Using secret key (first 10 chars): {SECRET_KEY[:10]}...")  # Debug log
+        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        print(f"Token generated successfully: {encoded_jwt[:10]}...")  # Debug log
+        return encoded_jwt
+    except Exception as e:
+        print(f"Error creating token: {str(e)}")  # Debug log
+        raise
 
 def decode_access_token(token: str) -> Optional[dict]:
     """Decode and verify a JWT access token."""
     try:
+        print(f"Attempting to decode token: {token[:10]}...")  # Debug log
+        print(f"Using secret key (first 10 chars): {SECRET_KEY[:10]}...")  # Debug log
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        print(f"Token decoded successfully. Payload: {payload}")  # Debug log
         return payload
     except JWTError as e:
-        print(f"JWT decode error: {str(e)}")
+        print(f"JWT decode error: {str(e)}")  # Debug log
         print(f"Token: {token[:10]}...")  # Log first 10 chars for debugging
         print(f"Secret key: {SECRET_KEY[:10]}...")  # Log first 10 chars of secret
         return None
