@@ -31,9 +31,8 @@ app.add_middleware(
 
 # Initialize OpenAI client with DeepSeek configuration
 client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    base_url=os.getenv("DEEPSEEK_BASE_URL")
-)
+    api_key=os.environ.get("deepseek"),
+    base_url="https://api.deepseek.com")
 
 class ChatMessage(BaseModel):
     role: str
@@ -73,16 +72,34 @@ async def register(user: UserCreate):
 
 @app.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = get_user(form_data.username)
-    if not user or not verify_password(form_data.password, user["hashed_password"]):
-        raise HTTPException(
-            status_code=401,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    access_token = create_access_token(data={"sub": form_data.username})
-    return {"access_token": access_token, "token_type": "bearer"}
+    print(f"Login attempt for user: {form_data.username}")  # Debug log
+    try:
+        user = get_user(form_data.username)
+        print(f"User found: {user is not None}")  # Debug log
+        
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            
+        valid_password = verify_password(form_data.password, user["hashed_password"])
+        print(f"Password verification result: {valid_password}")  # Debug log
+        
+        if not valid_password:
+            raise HTTPException(
+                status_code=401,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        access_token = create_access_token(data={"sub": form_data.username})
+        print(f"Token generated successfully")  # Debug log
+        return {"access_token": access_token, "token_type": "bearer"}
+    except Exception as e:
+        print(f"Login error: {str(e)}")  # Debug log
+        raise
 
 @app.get("/healthz")
 async def healthz():
