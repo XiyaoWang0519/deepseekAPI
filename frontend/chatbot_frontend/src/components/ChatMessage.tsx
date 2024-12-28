@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { Avatar, AvatarFallback } from './ui/avatar'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
